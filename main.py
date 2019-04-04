@@ -14,6 +14,7 @@ from spider import Spider
 from converter import Converter
 from util import *
 
+SPIDER_SLEEP_PERIOD = 0.5
 RESULT_DIR = "result"
 TF_RECORD_DIR = "tf_data"
 
@@ -52,11 +53,7 @@ def fetch_data():
         qf.write(d.text)
         qf.close()
 
-        # d = d.json()
-        # content = d['data']['question']['content']
-        # print(clean_empty_lines(clean_html(content)))
-
-        time.sleep(0.5)
+        time.sleep(SPIDER_SLEEP_PERIOD)
 
 
 def convert_data():
@@ -77,7 +74,6 @@ def convert_data():
         result_list.append(ff.read())
         ff.close()
     print("result files loaded successfully")
-    # print(result_list[0])
 
     # parse result files
     print("parsing result files (json format)")
@@ -90,7 +86,7 @@ def convert_data():
     # convert to TFRecords and save to files
     converter = Converter(question_list=valid_question_list)
     example_list = converter.convert(dest=TF_RECORD_DIR)
-    print(example_list[-1])
+    print(example_list[0])
 
 
 def main():

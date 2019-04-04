@@ -9,12 +9,13 @@ import tensorflow as tf
 import json
 
 from util import *
-from nltk import word_tokenize
+from tokenizer import Tokenizer
 
 
 class Converter(object):
     def __init__(self, question_list: list):
-        self.question_list = question_list
+        self.question_list = question_list.copy()
+        self.question_list.reverse()
         self.question2id = dict()
         self.tags = set()
         self.tag2id = dict()
@@ -43,7 +44,7 @@ class Converter(object):
         self.tag2id.clear()
         # id starts from 0
         tid = 0
-        for t in self.tags:
+        for t in sorted(self.tags):
             self.tag2id[t] = tid
             tid += 1
         return self.tag2id
@@ -53,14 +54,16 @@ class Converter(object):
         self.words.clear()
         for q in self.question_list:
             cleaned_content = clean_empty_lines(clean_html(q['data']['question']['content']))
-            tokens = word_tokenize(cleaned_content)
+            # tokens = word_tokenize(cleaned_content)
+            tokenizer = Tokenizer(cleaned_content)
+            tokens = tokenizer.tokenize()
             for t in tokens:
                 self.words.add(t.lower())
 
         self.word2id.clear()
         # id starts from 0
         wid = 0
-        for w in self.words:
+        for w in sorted(self.words):
             self.word2id[w] = wid
             wid += 1
         return self.word2id
