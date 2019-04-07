@@ -19,7 +19,7 @@ RESULT_DIR = "result"
 TF_RECORD_DIR = "tf_data"
 
 
-def fetch_data():
+def fetch_data(args):
     # create dir for data storage
     cur_path = os.path.dirname(os.path.abspath(__file__))
     create_dir(os.path.join(cur_path, RESULT_DIR))
@@ -56,7 +56,7 @@ def fetch_data():
         time.sleep(SPIDER_SLEEP_PERIOD)
 
 
-def convert_data():
+def convert_data(args):
     # create dir
     cur_path = os.path.dirname(os.path.abspath(__file__))
     result_path = os.path.join(cur_path, RESULT_DIR)
@@ -85,8 +85,13 @@ def convert_data():
 
     # convert to TFRecords and save to files
     converter = Converter(question_list=valid_question_list)
-    example_list = converter.convert(dest=TF_RECORD_DIR)
-    print(example_list[0])
+    if args.method == "normal":
+        example_list = converter.convert(dest=TF_RECORD_DIR)
+        print(example_list[0])
+    elif args.method == "pairwise":
+        example_list = converter.convert_pairwise(dest=TF_RECORD_DIR)
+        print(example_list[0])
+        print('Total: {}'.format(len(example_list)))
 
 
 def main():
@@ -95,6 +100,15 @@ def main():
         'action',
         help="Set action for the spider. Supported actions: fetch_data, convert_data",
         type=str,
+        choices=["fetch_data", "convert_data"],
+    )
+    parser.add_argument(
+        "--method",
+        "-m",
+        help="Set method for converting data. Supported methods: normal(default), pairwise",
+        type=str,
+        default="normal",
+        choices=["normal", "pairwise"],
     )
     args = parser.parse_args()
 
@@ -104,7 +118,7 @@ def main():
     }
 
     if args.action in action_dict:
-        action_dict[args.action]()
+        action_dict[args.action](args)
     else:
         print("Invalid action \"{}\" specified".format(args.action))
 

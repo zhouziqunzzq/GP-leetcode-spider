@@ -7,6 +7,7 @@
 
 import tensorflow as tf
 import json
+import random
 
 from util import *
 from tokenizer import Tokenizer
@@ -53,26 +54,36 @@ class Converter(object):
         # init word set
         self.words.clear()
         for q in self.question_list:
-            cleaned_content = clean_empty_lines(clean_html(q['data']['question']['content']))
-            # tokens = word_tokenize(cleaned_content)
-            tokenizer = Tokenizer(cleaned_content)
-            tokens = tokenizer.tokenize()
+            tokens = Converter.tokenize_raw_text(q['data']['question']['content'])
             for t in tokens:
                 self.words.add(t.lower())
 
         self.word2id.clear()
-        # id starts from 0
-        wid = 0
+        # insert special tokens
+        self.word2id["<PAD>"] = 0
+        self.word2id["<UNK>"] = 1
+
+        # normal token id starts from 2
+        wid = 2
         for w in sorted(self.words):
             self.word2id[w] = wid
             wid += 1
         return self.word2id
 
-    def convert(self, dest: str,
-                record_filename="leetcode.tfrecord",
-                question_list_filename="question_list.txt",
-                tag_list_filename="tag_list.txt",
-                word_list_filename="word_list.txt") -> list:
+    @staticmethod
+    def tokenize_raw_text(raw_text: str) -> list:
+        tokenizer = Tokenizer(clean_empty_lines(clean_html(raw_text)))
+        return tokenizer.tokenize()
+
+    def tokenize_raw_text_to_id(self, raw_text: str) -> list:
+        # we assume that self.word2id is valid
+        assert len(self.word2id) > 0
+        return [self.word2id[t.lower()] for t in Converter.tokenize_raw_text(raw_text=raw_text)]
+
+    def write_metadata(self, dest: str,
+                       question_list_filename="question_list.txt",
+                       tag_list_filename="tag_list.txt",
+                       word_list_filename="word_list.txt"):
         # create question list on need
         if len(self.question2id) == 0:
             self.create_question2id()
@@ -91,6 +102,16 @@ class Converter(object):
         with open(os.path.join(dest, word_list_filename), "w") as f:
             f.writelines([w + "\n" for w in self.word2id.keys()])
 
+    def convert(self, dest: str,
+                record_filename="leetcode.tfrecord",
+                question_list_filename="question_list.txt",
+                tag_list_filename="tag_list.txt",
+                word_list_filename="word_list.txt") -> list:
+        self.write_metadata(dest=dest,
+                            question_list_filename=question_list_filename,
+                            tag_list_filename=tag_list_filename,
+                            word_list_filename=word_list_filename)
+
         # convert to TFRecord
         example_list = []
         for q in self.question_list:
@@ -103,26 +124,95 @@ class Converter(object):
 
             example = tf.train.Example(
                 features=tf.train.Features(feature={
-                    'Text': tf.train.Feature(
-                        bytes_list=tf.train.BytesList(
-                            value=[clean_empty_lines(clean_html(
-                                q['data']['question']['content']
-                            )).encode('utf-8')]
-                        )
-                    ),
-                    'Tags': tf.train.Feature(
-                        int64_list=tf.train.Int64List(
-                            value=[self.tag2id[t['slug']] for t in topic_tags]
-                        )
-                    ),
-                    'Similar Questions': tf.train.Feature(
-                        int64_list=tf.train.Int64List(
-                            value=sim_qs_id
-                        )
-                    )
+                    'Text': tf_bytes_feature([
+                        clean_empty_lines(clean_html(
+                            q['data']['question']['content'])).encode('utf-8')]),
+                    'Tokens': tf_int64_feature(
+                        self.tokenize_raw_text_to_id(
+                            q['data']['question']['content'])),
+                    'Tags': tf_int64_feature([self.tag2id[t['slug']] for t in topic_tags]),
+                    'Similar Questions': tf_int64_feature(sim_qs_id),
                 })
             )
             example_list.append(example)
+
+        # write out to disk
+        with tf.python_io.TFRecordWriter(os.path.join(dest, record_filename)) as writer:
+            for e in example_list:
+                writer.write(e.SerializeToString())
+
+        return example_list
+
+    def convert_pairwise(self, dest: str,
+                         num_negative_sample=5,
+                         record_filename="leetcode_pairwise.tfrecord",
+                         question_list_filename="question_list.txt",
+                         tag_list_filename="tag_list.txt",
+                         word_list_filename="word_list.txt") -> list:
+        self.write_metadata(dest=dest,
+                            question_list_filename=question_list_filename,
+                            tag_list_filename=tag_list_filename,
+                            word_list_filename=word_list_filename)
+
+        # convert to TFRecord using pairwise method
+        example_list = []
+        question_set = set(self.question2id.keys())
+        for q in self.question_list:
+            # only use questions that have similar questions
+            sim_qs = json.loads(q['data']['question']['similarQuestions'])
+            if len(sim_qs) == 0:
+                continue
+
+            sim_q_set = set([sq['titleSlug'] for sq in sim_qs
+                             if sq['titleSlug'] in self.question2id])
+            dis_sim_q_set = question_set - sim_q_set
+            topic_tags = q['data']['question']['topicTags']
+
+            # create pairs
+            for sim_q in sim_q_set:
+                neg_sample_set = random.sample(dis_sim_q_set, num_negative_sample)
+                dis_sim_q_set -= set(neg_sample_set)
+                for dis_q in neg_sample_set:
+                    sim_q_obj = self.question_list[self.question2id[sim_q]]
+                    dis_q_obj = self.question_list[self.question2id[dis_q]]
+                    sim_q_topic_tags = sim_q_obj['data']['question']['topicTags']
+                    dis_q_topic_tags = dis_q_obj['data']['question']['topicTags']
+
+                    # now create one pairwise example
+                    example = tf.train.Example(
+                        features=tf.train.Features(feature={
+                            # pivot question
+                            'Text': tf_bytes_feature([
+                                clean_empty_lines(
+                                    clean_html(
+                                        q['data']['question']['content'])).encode('utf-8')]),
+                            'Tokens': tf_int64_feature(
+                                self.tokenize_raw_text_to_id(
+                                    q['data']['question']['content'])),
+                            'Tags': tf_int64_feature([self.tag2id[t['slug']] for t in topic_tags]),
+                            # similar question
+                            'Similar Question Text': tf_bytes_feature([
+                                clean_empty_lines(
+                                    clean_html(
+                                        sim_q_obj['data']['question']['content'])).encode('utf-8')]),
+                            'Similar Question Tokens': tf_int64_feature(
+                                self.tokenize_raw_text_to_id(
+                                    sim_q_obj['data']['question']['content'])),
+                            'Similar Question Tags': tf_int64_feature(
+                                [self.tag2id[t['slug']] for t in sim_q_topic_tags]),
+                            # dissimilar question
+                            'Dissimilar Question Text': tf_bytes_feature([
+                                clean_empty_lines(
+                                    clean_html(
+                                        dis_q_obj['data']['question']['content'])).encode('utf-8')]),
+                            'Dissimilar Question Tokens': tf_int64_feature(
+                                self.tokenize_raw_text_to_id(
+                                    dis_q_obj['data']['question']['content'])),
+                            'Dissimilar Question Tags': tf_int64_feature(
+                                [self.tag2id[t['slug']] for t in dis_q_topic_tags]),
+                        })
+                    )
+                    example_list.append(example)
 
         # write out to disk
         with tf.python_io.TFRecordWriter(os.path.join(dest, record_filename)) as writer:

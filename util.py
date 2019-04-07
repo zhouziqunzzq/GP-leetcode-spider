@@ -7,6 +7,7 @@
 
 import lxml.html
 import os
+import tensorflow as tf
 
 
 def clean_html(raw: str) -> str:
@@ -21,3 +22,15 @@ def clean_empty_lines(raw: str) -> str:
 def create_dir(name: str):
     if not os.path.exists(name):
         os.makedirs(name)
+
+
+def tf_bytes_feature(value: list) -> tf.train.Feature:
+    return tf.train.Feature(
+        bytes_list=tf.train.BytesList(value=value)
+    )
+
+
+def tf_int64_feature(value: list) -> tf.train.Feature:
+    return tf.train.Feature(
+        int64_list=tf.train.Int64List(value=value)
+    )
