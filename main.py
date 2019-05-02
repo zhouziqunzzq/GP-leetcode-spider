@@ -86,10 +86,26 @@ def convert_data(args):
     # convert to TFRecords and save to files
     converter = Converter(question_list=valid_question_list)
     if args.method == "normal":
-        example_list = converter.convert(dest=TF_RECORD_DIR)
+        example_list = converter.convert(
+            dest=TF_RECORD_DIR,
+            limit_length=args.limit_length,
+            limit_question=args.limit_question,
+        )
         print(example_list[0])
     elif args.method == "pairwise":
-        example_list = converter.convert_pairwise(dest=TF_RECORD_DIR)
+        example_list = converter.convert_pairwise(
+            dest=TF_RECORD_DIR,
+            limit_length=args.limit_length,
+            limit_question=args.limit_question,
+        )
+        print(example_list[0])
+        print('Total: {}'.format(len(example_list)))
+    elif args.method == "pairwise_self_sim":
+        example_list = converter.convert_pairwise_self_sim(
+            dest=TF_RECORD_DIR,
+            limit_length=args.limit_length,
+            limit_question=args.limit_question,
+        )
         print(example_list[0])
         print('Total: {}'.format(len(example_list)))
 
@@ -105,10 +121,24 @@ def main():
     parser.add_argument(
         "--method",
         "-m",
-        help="Set method for converting data. Supported methods: normal(default), pairwise",
+        help="Set method for converting data. Supported methods: normal(default), pairwise, pairwise_self_sim",
         type=str,
         default="normal",
-        choices=["normal", "pairwise"],
+        choices=["normal", "pairwise", "pairwise_self_sim"],
+    )
+    parser.add_argument(
+        "--limit_length",
+        "-l",
+        help="Set max length for tokens. Default: unlimited",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--limit_question",
+        "-q",
+        help="Set max question numbers to convert. Default: unlimited",
+        type=int,
+        default=None,
     )
     args = parser.parse_args()
 

@@ -37,6 +37,10 @@ class Tokenizer(object):
                 buffer = ""
                 last_space = False
 
+        # post process
+        if len(buffer) > 0:
+            tokens.append(buffer)
+
         return tokens
 
 

@@ -75,10 +75,15 @@ class Converter(object):
         tokenizer = Tokenizer(clean_empty_lines(clean_html(raw_text)))
         return tokenizer.tokenize()
 
-    def tokenize_raw_text_to_id(self, raw_text: str) -> list:
+    def tokenize_raw_text_to_id(self, raw_text: str, limit_length=None) -> list:
         # we assume that self.word2id is valid
         assert len(self.word2id) > 0
-        return [self.word2id[t.lower()] for t in Converter.tokenize_raw_text(raw_text=raw_text)]
+        assert limit_length is None or (isinstance(limit_length, int) and limit_length >= 0)
+        rst = [self.word2id[t.lower()] for t in Converter.tokenize_raw_text(raw_text=raw_text)]
+        if limit_length is None:
+            return rst
+        else:
+            return rst[:limit_length]
 
     def write_metadata(self, dest: str,
                        question_list_filename="question_list.txt",
@@ -106,7 +111,9 @@ class Converter(object):
                 record_filename="leetcode.tfrecord",
                 question_list_filename="question_list.txt",
                 tag_list_filename="tag_list.txt",
-                word_list_filename="word_list.txt") -> list:
+                word_list_filename="word_list.txt",
+                limit_length=None,
+                limit_question=None, ) -> list:
         self.write_metadata(dest=dest,
                             question_list_filename=question_list_filename,
                             tag_list_filename=tag_list_filename,
@@ -114,7 +121,14 @@ class Converter(object):
 
         # convert to TFRecord
         example_list = []
-        for q in self.question_list:
+
+        assert limit_question is None or (
+                isinstance(limit_question, int) and 0 <= limit_question <= len(self.question_list))
+        q_list = self.question_list
+        if limit_question is not None:
+            q_list = q_list[:limit_question]
+
+        for q in q_list:
             topic_tags = q['data']['question']['topicTags']
             sim_qs = json.loads(q['data']['question']['similarQuestions'])
             sim_qs_id = []
@@ -129,7 +143,7 @@ class Converter(object):
                             q['data']['question']['content'])).encode('utf-8')]),
                     'Tokens': tf_int64_feature(
                         self.tokenize_raw_text_to_id(
-                            q['data']['question']['content'])),
+                            q['data']['question']['content'], limit_length=limit_length)),
                     'Tags': tf_int64_feature([self.tag2id[t['slug']] for t in topic_tags]),
                     'Similar Questions': tf_int64_feature(sim_qs_id),
                 })
@@ -148,7 +162,9 @@ class Converter(object):
                          record_filename="leetcode_pairwise.tfrecord",
                          question_list_filename="question_list.txt",
                          tag_list_filename="tag_list.txt",
-                         word_list_filename="word_list.txt") -> list:
+                         word_list_filename="word_list.txt",
+                         limit_length=None,
+                         limit_question=None) -> list:
         self.write_metadata(dest=dest,
                             question_list_filename=question_list_filename,
                             tag_list_filename=tag_list_filename,
@@ -157,7 +173,14 @@ class Converter(object):
         # convert to TFRecord using pairwise method
         example_list = []
         question_set = set(self.question2id.keys())
-        for q in self.question_list:
+
+        assert limit_question is None or (
+                isinstance(limit_question, int) and 0 <= limit_question <= len(self.question_list))
+        q_list = self.question_list
+        if limit_question is not None:
+            q_list = q_list[:limit_question]
+
+        for q in q_list:
             # only use questions that have similar questions
             sim_qs = json.loads(q['data']['question']['similarQuestions'])
             if len(sim_qs) == 0:
@@ -188,7 +211,7 @@ class Converter(object):
                                         q['data']['question']['content'])).encode('utf-8')]),
                             'Tokens': tf_int64_feature(
                                 self.tokenize_raw_text_to_id(
-                                    q['data']['question']['content'])),
+                                    q['data']['question']['content'], limit_length=limit_length)),
                             'Tags': tf_int64_feature([self.tag2id[t['slug']] for t in topic_tags]),
                             # similar question
                             'Similar Question Text': tf_bytes_feature([
@@ -197,7 +220,7 @@ class Converter(object):
                                         sim_q_obj['data']['question']['content'])).encode('utf-8')]),
                             'Similar Question Tokens': tf_int64_feature(
                                 self.tokenize_raw_text_to_id(
-                                    sim_q_obj['data']['question']['content'])),
+                                    sim_q_obj['data']['question']['content'], limit_length=limit_length)),
                             'Similar Question Tags': tf_int64_feature(
                                 [self.tag2id[t['slug']] for t in sim_q_topic_tags]),
                             # dissimilar question
@@ -207,7 +230,95 @@ class Converter(object):
                                         dis_q_obj['data']['question']['content'])).encode('utf-8')]),
                             'Dissimilar Question Tokens': tf_int64_feature(
                                 self.tokenize_raw_text_to_id(
-                                    dis_q_obj['data']['question']['content'])),
+                                    dis_q_obj['data']['question']['content'], limit_length=limit_length)),
+                            'Dissimilar Question Tags': tf_int64_feature(
+                                [self.tag2id[t['slug']] for t in dis_q_topic_tags]),
+                        })
+                    )
+                    example_list.append(example)
+
+        # write out to disk
+        with tf.python_io.TFRecordWriter(os.path.join(dest, record_filename)) as writer:
+            for e in example_list:
+                writer.write(e.SerializeToString())
+
+        return example_list
+
+    def convert_pairwise_self_sim(self, dest: str,
+                                  num_negative_sample=5,
+                                  record_filename="leetcode_pairwise_self_sim.tfrecord",
+                                  question_list_filename="question_list.txt",
+                                  tag_list_filename="tag_list.txt",
+                                  word_list_filename="word_list.txt",
+                                  limit_length=None,
+                                  limit_question=None) -> list:
+        self.write_metadata(dest=dest,
+                            question_list_filename=question_list_filename,
+                            tag_list_filename=tag_list_filename,
+                            word_list_filename=word_list_filename)
+
+        # convert to TFRecord using pairwise method with self-sim only
+        example_list = []
+        question_set = set(self.question2id.keys())
+
+        assert limit_question is None or (
+                isinstance(limit_question, int) and 0 <= limit_question <= len(self.question_list))
+        q_list = self.question_list
+        if limit_question is not None:
+            q_list = q_list[:limit_question]
+
+        for q in q_list:
+            # similar question is the same as itself
+            sim_q_set = set()
+            sim_q_set.add(q['data']['question']['titleSlug'])
+
+            sim_qs = json.loads(q['data']['question']['similarQuestions'])
+            real_sim_q_set = set([sq['titleSlug'] for sq in sim_qs
+                                  if sq['titleSlug'] in self.question2id])
+
+            dis_sim_q_set = question_set - sim_q_set - real_sim_q_set
+            topic_tags = q['data']['question']['topicTags']
+
+            # create pairs
+            for sim_q in sim_q_set:
+                neg_sample_set = random.sample(dis_sim_q_set, num_negative_sample)
+                dis_sim_q_set -= set(neg_sample_set)
+                for dis_q in neg_sample_set:
+                    sim_q_obj = self.question_list[self.question2id[sim_q]]
+                    dis_q_obj = self.question_list[self.question2id[dis_q]]
+                    sim_q_topic_tags = sim_q_obj['data']['question']['topicTags']
+                    dis_q_topic_tags = dis_q_obj['data']['question']['topicTags']
+
+                    # now create one pairwise example
+                    example = tf.train.Example(
+                        features=tf.train.Features(feature={
+                            # pivot question
+                            'Text': tf_bytes_feature([
+                                clean_empty_lines(
+                                    clean_html(
+                                        q['data']['question']['content'])).encode('utf-8')]),
+                            'Tokens': tf_int64_feature(
+                                self.tokenize_raw_text_to_id(
+                                    q['data']['question']['content'], limit_length=limit_length)),
+                            'Tags': tf_int64_feature([self.tag2id[t['slug']] for t in topic_tags]),
+                            # similar question
+                            'Similar Question Text': tf_bytes_feature([
+                                clean_empty_lines(
+                                    clean_html(
+                                        sim_q_obj['data']['question']['content'])).encode('utf-8')]),
+                            'Similar Question Tokens': tf_int64_feature(
+                                self.tokenize_raw_text_to_id(
+                                    sim_q_obj['data']['question']['content'], limit_length=limit_length)),
+                            'Similar Question Tags': tf_int64_feature(
+                                [self.tag2id[t['slug']] for t in sim_q_topic_tags]),
+                            # dissimilar question
+                            'Dissimilar Question Text': tf_bytes_feature([
+                                clean_empty_lines(
+                                    clean_html(
+                                        dis_q_obj['data']['question']['content'])).encode('utf-8')]),
+                            'Dissimilar Question Tokens': tf_int64_feature(
+                                self.tokenize_raw_text_to_id(
+                                    dis_q_obj['data']['question']['content'], limit_length=limit_length)),
                             'Dissimilar Question Tags': tf_int64_feature(
                                 [self.tag2id[t['slug']] for t in dis_q_topic_tags]),
                         })
