@@ -43,8 +43,10 @@ class Converter(object):
                 self.tags.add(t['slug'])
 
         self.tag2id.clear()
-        # id starts from 0
-        tid = 0
+        # insert special tags
+        self.tag2id["<PAD>"] = 0
+        # normal id starts from 1
+        tid = 1
         for t in sorted(self.tags):
             self.tag2id[t] = tid
             tid += 1
