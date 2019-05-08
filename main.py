@@ -108,6 +108,14 @@ def convert_data(args):
         )
         print(example_list[0])
         print('Total: {}'.format(len(example_list)))
+    elif args.method == "pairwise_txt":
+        converter.convert_pairwise_txt(
+            dest=TF_RECORD_DIR,
+            limit_length=args.limit_length,
+            limit_question=args.limit_question,
+        )
+        # print(example_list[0])
+        # print('Total: {}'.format(len(example_list)))
 
 
 def main():
@@ -121,10 +129,11 @@ def main():
     parser.add_argument(
         "--method",
         "-m",
-        help="Set method for converting data. Supported methods: normal(default), pairwise, pairwise_self_sim",
+        help="Set method for converting data. Supported methods:" +
+             " normal(default), pairwise, pairwise_self_sim, pairwise_txt",
         type=str,
         default="normal",
-        choices=["normal", "pairwise", "pairwise_self_sim"],
+        choices=["normal", "pairwise", "pairwise_self_sim", "pairwise_txt"],
     )
     parser.add_argument(
         "--limit_length",

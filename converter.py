@@ -333,3 +333,61 @@ class Converter(object):
                 writer.write(e.SerializeToString())
 
         return example_list
+
+    def convert_pairwise_txt(self, dest: str,
+                             num_negative_sample=5,
+                             text_filename="leetcode_pairwise.txt",
+                             relation_filename="leetcode_pairwise_relation.txt",
+                             question_list_filename="question_list.txt",
+                             tag_list_filename="tag_list.txt",
+                             word_list_filename="word_list.txt",
+                             limit_length=None,
+                             limit_question=None):
+        self.write_metadata(dest=dest,
+                            question_list_filename=question_list_filename,
+                            tag_list_filename=tag_list_filename,
+                            word_list_filename=word_list_filename)
+
+        # convert to text and relation txt files using pairwise method
+        text_file = open(os.path.join(dest, text_filename), 'w')
+        relation_file = open(os.path.join(dest, relation_filename), 'w')
+        question_set = set(self.question2id.keys())
+
+        assert limit_question is None or (
+                isinstance(limit_question, int) and 0 <= limit_question <= len(self.question_list))
+        q_list = self.question_list
+        if limit_question is not None:
+            q_list = q_list[:limit_question]
+
+        # write out question text
+        for q in q_list:
+            q_txt = clean_empty_lines(clean_html(q['data']['question']['content']))
+            if limit_length is not None and len(q_txt) > limit_length:
+                q_txt = q_txt[:limit_length]
+            text_file.write(q_txt + '\n')
+
+        # write out relations
+        for q in q_list:
+            # only use questions that have similar questions
+            sim_qs = json.loads(q['data']['question']['similarQuestions'])
+            if len(sim_qs) == 0:
+                continue
+
+            sim_q_set = set([sq['titleSlug'] for sq in sim_qs
+                             if sq['titleSlug'] in self.question2id])
+            dis_sim_q_set = question_set - sim_q_set
+
+            # create pairs
+            for sim_q in sim_q_set:
+                neg_sample_set = random.sample(dis_sim_q_set, num_negative_sample)
+                dis_sim_q_set -= set(neg_sample_set)
+                for dis_q in neg_sample_set:
+                    q_id = self.question2id[q['data']['question']['titleSlug']]
+                    sim_q_id = self.question2id[sim_q]
+                    dis_q_id = self.question2id[dis_q]
+                    relation_file.write("{} {} {}\n".format(q_id, sim_q_id, dis_q_id))
+
+        text_file.close()
+        relation_file.close()
+
+        return
