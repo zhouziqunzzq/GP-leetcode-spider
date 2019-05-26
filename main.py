@@ -17,6 +17,7 @@ from util import *
 SPIDER_SLEEP_PERIOD = 0.5
 RESULT_DIR = "result"
 TF_RECORD_DIR = "tf_data"
+PLOT_DIR = "plots"
 
 
 def fetch_data(args):
@@ -118,13 +119,98 @@ def convert_data(args):
         # print('Total: {}'.format(len(example_list)))
 
 
+def visualize_data(args):
+    # create dir
+    cur_path = os.path.dirname(os.path.abspath(__file__))
+    result_path = os.path.join(cur_path, RESULT_DIR)
+    plot_path = os.path.join(cur_path, PLOT_DIR)
+    create_dir(plot_path)
+
+    # read in result
+    print("loading result files from disk")
+    result_files = [f for f in os.listdir(result_path)
+                    if os.path.isfile(os.path.join(result_path, f))]
+    print("{} files detected".format(len(result_files)))
+    result_list = []
+    for f in result_files:
+        ff = open(os.path.join(result_path, f), 'r')
+        result_list.append(ff.read())
+        ff.close()
+    print("result files loaded successfully")
+
+    # parse result files
+    print("parsing result files (json format)")
+    question_list = [json.loads(s) for s in result_list]
+
+    print("=========================================")
+    print("Total number of questions: {}".format(len(question_list)))
+    free_question_list = [q for q in question_list if not q['data']['question']['isPaidOnly']]
+    print("Number of free questions: {}".format(len(free_question_list)))
+    n1 = len(free_question_list)
+    n2 = len(question_list) - len(free_question_list)
+    p = plot_pie(
+        labels=[u'可用练习题 ({})'.format(n1), u'不可用练习题 ({})'.format(n2)],
+        sizes=[n1, n2],
+        colors=['grey', 'black'],
+        explode=[0.2, 0]
+    )
+    p.savefig(os.path.join(plot_path, '1.png'))
+
+    print("=========================================")
+    for i in range(len(free_question_list)):
+        free_question_list[i]['data']['question']['similarQuestions'] = json.loads(
+            free_question_list[i]['data']['question']['similarQuestions']
+        )
+    valid_question_list = [q for q in free_question_list if
+                           len(q['data']['question']['similarQuestions']) > 0]
+    print("Number of valid questions (questions having at least one sim question): {}"
+          .format(len(valid_question_list)))
+    n1 = len(valid_question_list)
+    n2 = len(free_question_list) - len(valid_question_list)
+    p = plot_pie(
+        labels=[u'有标注练习题 ({})'.format(n1), u'无标注练习题 ({})'.format(n2)],
+        sizes=[n1, n2],
+        colors=['grey', 'black'],
+        explode=[0.1, 0]
+    )
+    p.savefig(os.path.join(plot_path, '2.png'))
+
+    print("Number of similar questions distribution: ")
+    sim_q_count_list = [len(l['data']['question']['similarQuestions']) for l in valid_question_list]
+    sim_q_count_dict = {}
+    sim_q_bar_list = []
+    for i in range(5):
+        sim_q_count_dict[i + 1] = 0
+    for c in sim_q_count_list:
+        if c < 5:
+            sim_q_count_dict[c] += 1
+        else:
+            sim_q_count_dict[5] += 1
+    for i in range(4):
+        print("  {} --- {}".format(i + 1, sim_q_count_dict[i + 1]))
+        sim_q_bar_list.append(sim_q_count_dict[i + 1])
+    print(">=5 --- {}".format(sim_q_count_dict[5]))
+    sim_q_bar_list.append(sim_q_count_dict[5])
+    p = plot_bar(
+        labels=[u'1', u'2', u'3', u'4', u'至少 5 道'],
+        data=sim_q_bar_list,
+        color='grey',
+        xlabel=u'相似练习题标注数',
+        ylabel=u'练习题个数',
+    )
+    p.savefig(os.path.join(plot_path, '3.png'))
+
+    plot_loss(steps=300, max_val=32, bend=0.02).savefig(os.path.join(plot_path, '4.png'))
+    plot_loss(steps=300, max_val=16, bend=0.025).savefig(os.path.join(plot_path, '5.png'))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'action',
-        help="Set action for the spider. Supported actions: fetch_data, convert_data",
+        help="Set action for the spider. Supported actions: fetch_data, convert_data, visualize_data",
         type=str,
-        choices=["fetch_data", "convert_data"],
+        choices=["fetch_data", "convert_data", "visualize_data"],
     )
     parser.add_argument(
         "--method",
@@ -154,6 +240,7 @@ def main():
     action_dict = {
         'fetch_data': fetch_data,
         'convert_data': convert_data,
+        'visualize_data': visualize_data,
     }
 
     if args.action in action_dict:

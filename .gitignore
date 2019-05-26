@@ -3,3 +3,4 @@ __pycache__/
 question_list.json
 result/
 tf_data/
+plots/
